@@ -1,75 +1,52 @@
 
 import streamlit as st
 import pandas as pd
-import altair as alt
 
-# --- Data loading and preprocessing ---
-@st.cache
-def load_data():
-    # Data loading and cleaning for Contract Balance and Consultant Billing will be done here
-    # You should upload your final cleaned datasets here, as we are not able to run previous steps in Streamlit directly
-    contracts_clean_df = pd.read_csv("path_to_contracts_data.csv")
-    consultant_billing_df = pd.read_csv("path_to_consultant_billing_data.csv")
-    return contracts_clean_df, consultant_billing_df
+# Function to process the contract sheet
+def process_contract_data(df):
+    # Selecting relevant columns
+    contracts_df = df[["Client Name", "Type of Work", "PO No.", "Business Head", "Total PO Value", "PO Balance"]]
 
-# --- Streamlit app UI ---
+    # Calculate Utilization
+    contracts_df['Utilization'] = ((contracts_df['Total PO Value'] - contracts_df['PO Balance']) / contracts_df['Total PO Value']) * 100
+    return contracts_df
+
+# Function to process the consultant billing sheet
+def process_consultant_billing_data(df):
+    # Selecting relevant columns
+    consultant_df = df[["Business Head", "Consultant", "Client Name", "Month", "T Amt", "Ded", "N Amt", "Days"]]
+    return consultant_df
+
+# Title for the Streamlit App
 st.title("Contract & Consultant Billing Dashboard")
 
-# Data loading
-contracts_clean_df, consultant_billing_df = load_data()
+# File uploader
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
-# --- Contract Balance Tab ---
-with st.beta_expander("Contract Balance"):
-    # Filter options for Contract Balance
-    client_filter = st.selectbox("Select Client", contracts_clean_df['Client Name'].unique())
-    business_head_filter = st.selectbox("Select Business Head", contracts_clean_df['Business Head'].unique())
+# Check if file is uploaded
+if uploaded_file is not None:
+    # Read the Excel file
+    excel_file = pd.ExcelFile(uploaded_file)
+    
+    # Check if both required sheets exist in the file
+    if 'contracts' in excel_file.sheet_names and 'consultant billing' in excel_file.sheet_names:
+        # Process the 'contracts' sheet
+        contracts_df = pd.read_excel(uploaded_file, sheet_name="contracts")
+        contracts_df = process_contract_data(contracts_df)
 
-    # Filter data based on selected filters
-    filtered_contracts = contracts_clean_df[
-        (contracts_clean_df['Client Name'] == client_filter) & 
-        (contracts_clean_df['Business Head'] == business_head_filter)
-    ]
+        # Process the 'consultant billing' sheet
+        consultant_df = pd.read_excel(uploaded_file, sheet_name="consultant billing")
+        consultant_df = process_consultant_billing_data(consultant_df)
+        
+        # Display Contract Data
+        st.header("Contract Summary")
+        st.write(contracts_df)
 
-    st.write(f"Contract Balance for {client_filter} - {business_head_filter}")
-    st.dataframe(filtered_contracts)
-
-    # PO Utilization Visualization
-    utilization_chart = alt.Chart(filtered_contracts).mark_bar().encode(
-        x='Client Name:N',
-        y='Utilization:Q',
-        color='Business Head:N',
-        tooltip=['Client Name', 'Utilization']
-    )
-    st.altair_chart(utilization_chart)
-
-# --- Consultant Billing Tab ---
-with st.beta_expander("Consultant Billing"):
-    # Filter options for Consultant Billing
-    consultant_filter = st.selectbox("Select Consultant", consultant_billing_df['Consultant'].unique())
-    month_filter = st.selectbox("Select Month", ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])
-
-    # Filter data based on selected filters
-    filtered_billing = consultant_billing_df[
-        (consultant_billing_df['Consultant'] == consultant_filter)
-    ]
-
-    st.write(f"Consultant Billing for {consultant_filter} - {month_filter}")
-    st.dataframe(filtered_billing)
-
-    # Monthly Billing Trend Visualization
-    trend_chart = alt.Chart(filtered_billing).mark_line().encode(
-        x='Month:N',
-        y='N Amt:Q',
-        color='Consultant:N',
-        tooltip=['Consultant', 'Month', 'N Amt']
-    )
-    st.altair_chart(trend_chart)
-
-# --- Download button ---
-st.download_button(
-    label="Download Data",
-    data=contracts_clean_df.to_csv(),
-    file_name="contracts_data.csv",
-    mime="text/csv"
-)
-
+        # Display Consultant Billing Data
+        st.header("Consultant Billing Summary")
+        st.write(consultant_df)
+        
+    else:
+        st.error("The uploaded file does not contain the required sheets ('contracts' and 'consultant billing'). Please check the file.")
+else:
+    st.warning("Please upload a file to proceed.")
