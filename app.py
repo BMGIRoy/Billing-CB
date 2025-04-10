@@ -14,13 +14,13 @@ if uploaded_file is not None:
         st.write("Sheet names in the uploaded file:", excel_file.sheet_names)
         
         # If both required sheets exist, process them
-        if 'contracts' in excel_file.sheet_names and 'consultant billing' in excel_file.sheet_names:
-            # Process the 'contracts' sheet
-            contracts_df = pd.read_excel(uploaded_file, sheet_name="contracts")
+        if 'Contracts' in excel_file.sheet_names and 'Consultant Billing' in excel_file.sheet_names:
+            # Process the 'Contracts' sheet
+            contracts_df = pd.read_excel(uploaded_file, sheet_name="Contracts")
             contracts_df = process_contract_data(contracts_df)
 
-            # Process the 'consultant billing' sheet
-            consultant_df = pd.read_excel(uploaded_file, sheet_name="consultant billing")
+            # Process the 'Consultant Billing' sheet
+            consultant_df = pd.read_excel(uploaded_file, sheet_name="Consultant Billing")
             consultant_df = process_consultant_billing_data(consultant_df)
 
             # Display Contract Data
@@ -32,7 +32,7 @@ if uploaded_file is not None:
             st.write(consultant_df)
             
         else:
-            st.error("The uploaded file does not contain the required sheets ('contracts' and 'consultant billing'). Please check the file.")
+            st.error("The uploaded file does not contain the required sheets ('Contracts' and 'Consultant Billing'). Please check the file.")
     except Exception as e:
         st.error(f"An error occurred: {e}")
 else:
