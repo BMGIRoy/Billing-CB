@@ -49,27 +49,25 @@ if uploaded_file:
         billing_df = data["Consultant Billing"]
         billing_df.columns = billing_df.columns.map(str).str.strip().str.lower()
 
-        # Fallback: use first column if no label
-        row_label_col = next((col for col in billing_df.columns if "row label" in col), None)
-        if not row_label_col:
-            row_label_col = billing_df.columns[0]
-
+        row_label_col = billing_df.columns[0]
         billing_df = billing_df.rename(columns={row_label_col: "consultant"})
 
         billing_df = billing_df[billing_df["consultant"].notna()]
-        billing_df = billing_df[~billing_df["consultant"].astype(str).str.strip().str.lower().isin(["grand total", "total"])]
-
-        total_billed_col = billing_df.columns[-2]
-        total_days_col = billing_df.columns[-1]
-
-        billing_df["billed_amount"] = pd.to_numeric(billing_df[total_billed_col], errors="coerce")
-        billing_df["billed_days"] = pd.to_numeric(billing_df[total_days_col], errors="coerce")
-        billing_df["net_amount"] = billing_df["billed_amount"]
-
-        billing_df["business head"] = billing_df["consultant"].where(billing_df["billed_amount"].isna()).ffill()
-        billing_df = billing_df[billing_df["billed_amount"].notna()]
-        billing_df["business head"] = billing_df["business head"].astype(str).str.strip()
+        billing_df = billing_df[~billing_df["consultant"].astype(str).str.lower().str.contains("total")]
         billing_df["consultant"] = billing_df["consultant"].astype(str).str.strip()
+
+        # Fill business head from top-level group
+        billing_df["business head"] = billing_df["consultant"].where(billing_df.iloc[:, 1:].isna().all(axis=1)).ffill()
+        billing_df = billing_df[~billing_df.iloc[:, 1:].isna().all(axis=1)]
+
+        # Find T Amt and N Amt columns
+        t_amt_cols = [col for col in billing_df.columns if "t amt" in col]
+        n_amt_cols = [col for col in billing_df.columns if "n amt" in col]
+        day_cols = [col for col in billing_df.columns if "days" in col]
+
+        billing_df["billed_amount"] = billing_df[t_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
+        billing_df["net_amount"] = billing_df[n_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
+        billing_df["billed_days"] = billing_df[day_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
 
         billing_summary = billing_df.groupby(["business head", "consultant"]).agg({
             "billed_amount": "sum",
@@ -83,9 +81,9 @@ if uploaded_file:
             "billed_days": "sum"
         }).reset_index()
 
-        monthly_cols = [col for col in billing_df.columns if "t amt" in col.lower()]
+        # Monthly Trend (T Amt cols only)
         month_order = get_month_order()
-        monthly_trend = billing_df[["consultant", "business head"] + monthly_cols].copy()
+        monthly_trend = billing_df[["consultant", "business head"] + t_amt_cols].copy()
         monthly_trend = monthly_trend.melt(id_vars=["consultant", "business head"], var_name="Month", value_name="Billing")
         monthly_trend.dropna(subset=["Billing"], inplace=True)
         monthly_trend["Billing"] = pd.to_numeric(monthly_trend["Billing"], errors="coerce")
