@@ -1,135 +1,60 @@
 
 import streamlit as st
 import pandas as pd
-import altair as alt
-from io import BytesIO
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Contract & Billing Dashboard (FY 2024-25)", layout="wide")
+st.set_page_config(page_title="Contract & Consultant Billing Dashboard (FY 2024-25)", layout="wide")
+
 st.title("📊 Contract & Consultant Billing Dashboard (FY 2024-25)")
 
-def convert_df_to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False)
-    return output.getvalue()
-
-def get_month_order():
-    return ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"]
-
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+
 if uploaded_file:
-    try:
-        data = pd.read_excel(uploaded_file, sheet_name=["Contracts", "Consultant Billing"])
+    xl = pd.ExcelFile(uploaded_file)
+    if "Contracts" in xl.sheet_names and "Consultant Billing" in xl.sheet_names:
+        contracts_df = xl.parse("Contracts", skiprows=9)
+        billing_df = xl.parse("Consultant Billing", skiprows=10)
 
-        # --- CONTRACTS SHEET ---
-        contracts_raw = data["Contracts"]
-        contracts_raw.columns = contracts_raw.iloc[3]
-        contracts_df = contracts_raw[4:].copy()
-        contracts_df.columns = contracts_df.columns.map(str).str.strip().str.lower()
+        contracts_df.columns = contracts_df.columns.str.lower().str.strip()
+        contracts_df.rename(columns={"po no.": "po_no", "billed current year": "billed_amount"}, inplace=True)
+        contracts_df["utilization"] = contracts_df["billed_amount"] / contracts_df["contract_value"]
 
-        contracts_df = contracts_df.rename(columns={
-            "client name": "client",
-            "po no.": "po no.",
-            "total value (f +v)": "contract_value",
-            "billed current year": "billed_amount"
-        })
+        st.subheader("📄 Contracts Summary")
+        st.dataframe(contracts_df[["client", "po_no", "contract_value", "billed_amount", "utilization"]])
 
-        contracts_df = contracts_df[["client", "po no.", "contract_value", "billed_amount"]].dropna(subset=["client", "contract_value"])
-        contracts_df["contract_value"] = pd.to_numeric(contracts_df["contract_value"], errors="coerce")
-        contracts_df["billed_amount"] = pd.to_numeric(contracts_df["billed_amount"], errors="coerce").fillna(0)
-        contracts_df["po no."] = contracts_df["po no."].astype(str).str.strip()
-        contracts_df["utilization %"] = (contracts_df["billed_amount"] / contracts_df["contract_value"] * 100).round(1)
-        contracts_df["balance"] = contracts_df["contract_value"] - contracts_df["billed_amount"]
+        st.subheader("💰 Client Contribution")
+        client_contribution = contracts_df.groupby("client")["billed_amount"].sum().reset_index()
+        client_contribution = client_contribution.sort_values("billed_amount", ascending=False)
+        st.dataframe(client_contribution)
 
-        client_contribution = contracts_df.groupby("client").agg({
-            "billed_amount": "sum"
-        }).sort_values("billed_amount", ascending=False).reset_index()
+        st.subheader("📈 Monthly Billing Trend")
+        month_cols = billing_df.columns[billing_df.columns.str.contains("T Amt|Net Amt", case=False)]
+        billing_df_clean = billing_df[~billing_df.iloc[:, 0].astype(str).str.contains("Total", na=False)]
+        billing_df_clean = billing_df_clean.rename(columns={billing_df_clean.columns[0]: "consultant"})
+        trend_data = billing_df_clean[["consultant"] + list(month_cols)].copy()
+        trend_data = trend_data.dropna(subset=["consultant"])
+        trend_data = trend_data.groupby("consultant")[month_cols].sum().T
+        st.line_chart(trend_data)
 
-        # --- CONSULTANT BILLING SHEET ---
-        billing_df = data["Consultant Billing"]
-        billing_df.columns = billing_df.columns.map(str).str.strip().str.lower()
+        st.subheader("👥 Consultant Summary by Business Head")
+        summary_df = billing_df_clean.copy()
+        summary_df["business_head"] = ""
+        current_head = ""
+        for i, row in summary_df.iterrows():
+            if pd.isna(row["consultant"]) or row["consultant"].strip() == "":
+                continue
+            if row["consultant"].isupper():
+                current_head = row["consultant"]
+                summary_df.at[i, "business_head"] = current_head
+            else:
+                summary_df.at[i, "business_head"] = current_head
+        summary_df = summary_df[~summary_df["consultant"].isin(summary_df["business_head"].unique())]
+        summary_df["billed_amount"] = summary_df.filter(like="T Amt").sum(axis=1)
+        summary_df["net_amount"] = summary_df.filter(like="Net Amt").sum(axis=1)
+        summary_df["billed_days"] = summary_df.filter(like="Days").sum(axis=1)
+        final_summary = summary_df[["business_head", "consultant", "billed_amount", "net_amount", "billed_days"]]
+        st.dataframe(final_summary)
 
-        row_label_col = billing_df.columns[0]
-        billing_df = billing_df.rename(columns={row_label_col: "consultant"})
-
-        billing_df = billing_df[billing_df["consultant"].notna()]
-        billing_df = billing_df[~billing_df["consultant"].astype(str).str.lower().str.contains("total")]
-        billing_df["consultant"] = billing_df["consultant"].astype(str).str.strip()
-
-        # Fill business head from top-level group
-        billing_df["business head"] = billing_df["consultant"].where(billing_df.iloc[:, 1:].isna().all(axis=1)).ffill()
-        billing_df = billing_df[~billing_df.iloc[:, 1:].isna().all(axis=1)]
-
-        # Find T Amt and N Amt columns
-        t_amt_cols = [col for col in billing_df.columns if "t amt" in col]
-        n_amt_cols = [col for col in billing_df.columns if "n amt" in col]
-        day_cols = [col for col in billing_df.columns if "days" in col]
-
-        billing_df["billed_amount"] = billing_df[t_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
-        billing_df["net_amount"] = billing_df[n_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
-        billing_df["billed_days"] = billing_df[day_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
-
-        billing_summary = billing_df.groupby(["business head", "consultant"]).agg({
-            "billed_amount": "sum",
-            "net_amount": "sum",
-            "billed_days": "sum"
-        }).reset_index()
-
-        head_summary = billing_summary.groupby("business head").agg({
-            "billed_amount": "sum",
-            "net_amount": "sum",
-            "billed_days": "sum"
-        }).reset_index()
-
-        # Monthly Trend (T Amt cols only)
-        month_order = get_month_order()
-        monthly_trend = billing_df[["consultant", "business head"] + t_amt_cols].copy()
-        monthly_trend = monthly_trend.melt(id_vars=["consultant", "business head"], var_name="Month", value_name="Billing")
-        monthly_trend.dropna(subset=["Billing"], inplace=True)
-        monthly_trend["Billing"] = pd.to_numeric(monthly_trend["Billing"], errors="coerce")
-        monthly_trend["Month"] = monthly_trend["Month"].str.extract(r"(" + "|".join(month_order) + ")")[0]
-        monthly_trend["Month"] = pd.Categorical(monthly_trend["Month"], categories=month_order, ordered=True)
-        monthly_trend = monthly_trend.dropna(subset=["Month"])
-
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📄 Contracts Summary",
-            "💰 Client Contribution",
-            "👥 Consultant Summary",
-            "📆 Monthly Trends",
-            "🧑‍💼 Head Summary"
-        ])
-
-        with tab1:
-            st.subheader("📄 Client & PO Level Contract Summary")
-            st.dataframe(contracts_df)
-            st.download_button("Download Contracts Summary", convert_df_to_excel(contracts_df), "contracts_summary.xlsx")
-
-        with tab2:
-            st.subheader("💰 Client-Wise Contribution (₹ Billed)")
-            st.dataframe(client_contribution)
-            st.download_button("Download Client Contribution", convert_df_to_excel(client_contribution), "client_contribution.xlsx")
-
-        with tab3:
-            st.subheader("👥 Consultant Billing Summary by Business Head")
-            st.dataframe(billing_summary)
-            st.download_button("Download Consultant Summary", convert_df_to_excel(billing_summary), "consultant_summary.xlsx")
-
-        with tab4:
-            st.subheader("📆 Monthly Billing Trend (FY 2024-25)")
-            chart = alt.Chart(monthly_trend).mark_line(point=True).encode(
-                x=alt.X("Month:N", sort=month_order),
-                y="Billing:Q",
-                color="consultant:N",
-                tooltip=["consultant", "business head", "Month", "Billing"]
-            ).properties(width=900)
-            st.altair_chart(chart, use_container_width=True)
-
-        with tab5:
-            st.subheader("🧑‍💼 Rollup by Business Head")
-            st.dataframe(head_summary)
-            st.download_button("Download Head Summary", convert_df_to_excel(head_summary), "head_summary.xlsx")
-
-    except Exception as e:
-        st.error(f"Something went wrong: {e}")
-else:
-    st.info("Please upload the Excel file with 'Contracts' and 'Consultant Billing' sheets.")
+        st.download_button("Download Consultant Summary", final_summary.to_csv(index=False), file_name="consultant_summary.csv")
+    else:
+        st.error("Required sheets 'Contracts' and 'Consultant Billing' not found in the Excel file.")
