@@ -1,6 +1,34 @@
 import streamlit as st
 import pandas as pd
 
+# Function to process contract data
+def process_contract_data(contracts_df):
+    # Filter the necessary columns
+    contracts_df = contracts_df[['Client Name', 'Type of Work', 'P O No.', 'Business Head', 'Total PO Value', 'PO Balance']]
+    
+    # Calculate Utilization
+    contracts_df['Utilization'] = ((contracts_df['Total PO Value'] - contracts_df['PO Balance']) / contracts_df['Total PO Value']) * 100
+    
+    # Convert numbers to Indian currency format
+    contracts_df['Total PO Value'] = contracts_df['Total PO Value'].apply(lambda x: f'₹ {x:,.0f}')
+    contracts_df['PO Balance'] = contracts_df['PO Balance'].apply(lambda x: f'₹ {x:,.0f}')
+    
+    # Return the cleaned data
+    return contracts_df
+
+# Function to process consultant billing data
+def process_consultant_billing_data(consultant_df):
+    # Filter the necessary columns
+    consultant_df = consultant_df[['Business Head', 'Consultant', 'Client Name', 'T Amt', 'Ded', 'N Amt', 'Days']]
+    
+    # Convert numbers to Indian currency format
+    consultant_df['T Amt'] = consultant_df['T Amt'].apply(lambda x: f'₹ {x:,.0f}')
+    consultant_df['Ded'] = consultant_df['Ded'].apply(lambda x: f'₹ {x:,.0f}')
+    consultant_df['N Amt'] = consultant_df['N Amt'].apply(lambda x: f'₹ {x:,.0f}')
+    
+    # Return the cleaned data
+    return consultant_df
+
 # File uploader
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
