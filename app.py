@@ -19,7 +19,6 @@ def get_month_order():
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 if uploaded_file:
     try:
-        # Load sheets
         data = pd.read_excel(uploaded_file, sheet_name=["Contracts", "Consultant Billing"])
 
         # --- CONTRACTS SHEET ---
@@ -28,7 +27,6 @@ if uploaded_file:
         contracts_df = contracts_raw[4:].copy()
         contracts_df.columns = contracts_df.columns.map(str).str.strip().str.lower()
 
-        # Use 'billed current year' as billed_amount
         contracts_df = contracts_df.rename(columns={
             "client name": "client",
             "po no.": "po no.",
@@ -48,23 +46,28 @@ if uploaded_file:
         }).sort_values("billed_amount", ascending=False).reset_index()
 
         # --- CONSULTANT BILLING SHEET ---
-        billing_raw = data["Consultant Billing"]
-        billing_raw.columns = billing_raw.iloc[8]
-        billing_df = billing_raw[9:].copy()
-        billing_df = billing_df.rename(columns={billing_df.columns[0]: "consultant"})
+        billing_df = data["Consultant Billing"]
         billing_df.columns = billing_df.columns.map(str).str.strip().str.lower()
 
-        # Monthly columns
-        t_amt_cols = [col for col in billing_df.columns if "t amt" in col.lower()]
-        n_amt_cols = [col for col in billing_df.columns if "n amt" in col.lower()]
-        day_cols = [col for col in billing_df.columns if "day" in col.lower() and "total" not in col.lower()]
+        billing_df = billing_df.rename(columns={"row labels": "consultant"})
 
-        billing_df["billed_amount"] = billing_df[t_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
-        billing_df["net_amount"] = billing_df[n_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
-        billing_df["billed_days"] = billing_df[day_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
+        # Filter out subtotals and blank rows
+        billing_df = billing_df[billing_df["consultant"].notna()]
+        billing_df = billing_df[~billing_df["consultant"].astype(str).str.strip().str.lower().isin(["grand total", "total"])]
 
-        if "business head" not in billing_df.columns:
-            billing_df["business head"] = "Unassigned"
+        # Get totals from last columns
+        total_billed_col = billing_df.columns[-2]
+        total_days_col = billing_df.columns[-1]
+
+        billing_df["billed_amount"] = pd.to_numeric(billing_df[total_billed_col], errors="coerce")
+        billing_df["billed_days"] = pd.to_numeric(billing_df[total_days_col], errors="coerce")
+        billing_df["net_amount"] = billing_df["billed_amount"]  # Assume net = billed
+
+        # Auto-identify business heads by checking for grouping shifts
+        billing_df["business head"] = billing_df["consultant"].where(billing_df["billed_amount"].isna()).ffill()
+        billing_df = billing_df[billing_df["billed_amount"].notna()]
+        billing_df["business head"] = billing_df["business head"].astype(str).str.strip()
+        billing_df["consultant"] = billing_df["consultant"].astype(str).str.strip()
 
         billing_summary = billing_df.groupby(["business head", "consultant"]).agg({
             "billed_amount": "sum",
@@ -78,15 +81,13 @@ if uploaded_file:
             "billed_days": "sum"
         }).reset_index()
 
-        # Monthly trend: sort by financial year order
-        monthly_cols = [col for col in t_amt_cols if any(m in col for m in get_month_order())]
+        # Monthly breakdown
+        monthly_cols = [col for col in billing_df.columns if "t amt" in col.lower()]
+        month_order = get_month_order()
         monthly_trend = billing_df[["consultant", "business head"] + monthly_cols].copy()
         monthly_trend = monthly_trend.melt(id_vars=["consultant", "business head"], var_name="Month", value_name="Billing")
         monthly_trend.dropna(subset=["Billing"], inplace=True)
         monthly_trend["Billing"] = pd.to_numeric(monthly_trend["Billing"], errors="coerce")
-
-        # Fix month order
-        month_order = get_month_order()
         monthly_trend["Month"] = monthly_trend["Month"].str.extract(r"(" + "|".join(month_order) + ")")[0]
         monthly_trend["Month"] = pd.Categorical(monthly_trend["Month"], categories=month_order, ordered=True)
         monthly_trend = monthly_trend.dropna(subset=["Month"])
