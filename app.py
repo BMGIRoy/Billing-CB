@@ -4,7 +4,7 @@ import pandas as pd
 import altair as alt
 from io import BytesIO
 
-st.set_page_config(page_title="Contract & Billing Dashboard", layout="wide")
+st.set_page_config(page_title="Contract & Billing Dashboard (FY 2024-25)", layout="wide")
 st.title("📊 Contract & Consultant Billing Dashboard (FY 2024-25)")
 
 def convert_df_to_excel(df):
@@ -28,12 +28,12 @@ if uploaded_file:
         contracts_df = contracts_raw[4:].copy()
         contracts_df.columns = contracts_df.columns.map(str).str.strip().str.lower()
 
-        # Select key fields
+        # Use 'billed current year' as billed_amount
         contracts_df = contracts_df.rename(columns={
             "client name": "client",
             "po no.": "po no.",
             "total value (f +v)": "contract_value",
-            "n": "billed_amount"
+            "billed current year": "billed_amount"
         })
 
         contracts_df = contracts_df[["client", "po no.", "contract_value", "billed_amount"]].dropna(subset=["client", "contract_value"])
