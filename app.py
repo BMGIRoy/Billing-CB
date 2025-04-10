@@ -49,15 +49,13 @@ if uploaded_file:
         billing_df = data["Consultant Billing"]
         billing_df.columns = billing_df.columns.map(str).str.strip().str.lower()
 
-        # Identify the correct 'row labels' column
+        # Fallback: use first column if no label
         row_label_col = next((col for col in billing_df.columns if "row label" in col), None)
         if not row_label_col:
-            st.error("Could not find 'Row Labels' column in Consultant Billing sheet.")
-            st.stop()
+            row_label_col = billing_df.columns[0]
 
         billing_df = billing_df.rename(columns={row_label_col: "consultant"})
 
-        # Filter out subtotals and blank rows
         billing_df = billing_df[billing_df["consultant"].notna()]
         billing_df = billing_df[~billing_df["consultant"].astype(str).str.strip().str.lower().isin(["grand total", "total"])]
 
