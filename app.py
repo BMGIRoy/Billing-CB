@@ -49,21 +49,25 @@ if uploaded_file:
         billing_df = data["Consultant Billing"]
         billing_df.columns = billing_df.columns.map(str).str.strip().str.lower()
 
-        billing_df = billing_df.rename(columns={"row labels": "consultant"})
+        # Identify the correct 'row labels' column
+        row_label_col = next((col for col in billing_df.columns if "row label" in col), None)
+        if not row_label_col:
+            st.error("Could not find 'Row Labels' column in Consultant Billing sheet.")
+            st.stop()
+
+        billing_df = billing_df.rename(columns={row_label_col: "consultant"})
 
         # Filter out subtotals and blank rows
         billing_df = billing_df[billing_df["consultant"].notna()]
         billing_df = billing_df[~billing_df["consultant"].astype(str).str.strip().str.lower().isin(["grand total", "total"])]
 
-        # Get totals from last columns
         total_billed_col = billing_df.columns[-2]
         total_days_col = billing_df.columns[-1]
 
         billing_df["billed_amount"] = pd.to_numeric(billing_df[total_billed_col], errors="coerce")
         billing_df["billed_days"] = pd.to_numeric(billing_df[total_days_col], errors="coerce")
-        billing_df["net_amount"] = billing_df["billed_amount"]  # Assume net = billed
+        billing_df["net_amount"] = billing_df["billed_amount"]
 
-        # Auto-identify business heads by checking for grouping shifts
         billing_df["business head"] = billing_df["consultant"].where(billing_df["billed_amount"].isna()).ffill()
         billing_df = billing_df[billing_df["billed_amount"].notna()]
         billing_df["business head"] = billing_df["business head"].astype(str).str.strip()
@@ -81,7 +85,6 @@ if uploaded_file:
             "billed_days": "sum"
         }).reset_index()
 
-        # Monthly breakdown
         monthly_cols = [col for col in billing_df.columns if "t amt" in col.lower()]
         month_order = get_month_order()
         monthly_trend = billing_df[["consultant", "business head"] + monthly_cols].copy()
@@ -92,7 +95,6 @@ if uploaded_file:
         monthly_trend["Month"] = pd.Categorical(monthly_trend["Month"], categories=month_order, ordered=True)
         monthly_trend = monthly_trend.dropna(subset=["Month"])
 
-        # --- Layout ---
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📄 Contracts Summary",
             "💰 Client Contribution",
