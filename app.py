@@ -4,8 +4,7 @@ import pandas as pd
 import altair as alt
 from io import BytesIO
 
-st.set_page_config(page_title="Contract & Billing Dashboard (FY 2024-25)", layout="wide")
-st.title("📊 Contract & Consultant Billing Dashboard (FY 2024-25)")
+st.set_page_config(page_title="Contract & Consultant Billing Dashboard", layout="wide")
 
 def convert_df_to_excel(df):
     output = BytesIO()
@@ -13,20 +12,18 @@ def convert_df_to_excel(df):
         df.to_excel(writer, index=False)
     return output.getvalue()
 
-def get_month_order():
-    return ["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"]
+st.title("📊 Contract & Consultant Billing Dashboard (FY 2024-25)")
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 if uploaded_file:
     try:
         data = pd.read_excel(uploaded_file, sheet_name=["Contracts", "Consultant Billing"])
 
-        # --- CONTRACTS SHEET ---
+        # CONTRACTS
         contracts_raw = data["Contracts"]
         contracts_raw.columns = contracts_raw.iloc[3]
         contracts_df = contracts_raw[4:].copy()
         contracts_df.columns = contracts_df.columns.map(str).str.strip().str.lower()
-
         contracts_df = contracts_df.rename(columns={
             "client name": "client",
             "po no.": "po no.",
@@ -37,7 +34,6 @@ if uploaded_file:
         contracts_df = contracts_df[["client", "po no.", "contract_value", "billed_amount"]].dropna(subset=["client", "contract_value"])
         contracts_df["contract_value"] = pd.to_numeric(contracts_df["contract_value"], errors="coerce")
         contracts_df["billed_amount"] = pd.to_numeric(contracts_df["billed_amount"], errors="coerce").fillna(0)
-        contracts_df["po no."] = contracts_df["po no."].astype(str).str.strip()
         contracts_df["utilization %"] = (contracts_df["billed_amount"] / contracts_df["contract_value"] * 100).round(1)
         contracts_df["balance"] = contracts_df["contract_value"] - contracts_df["billed_amount"]
 
@@ -45,29 +41,19 @@ if uploaded_file:
             "billed_amount": "sum"
         }).sort_values("billed_amount", ascending=False).reset_index()
 
-        # --- CONSULTANT BILLING SHEET ---
-        billing_df = data["Consultant Billing"]
+        # CONSULTANT BILLING PIVOTED
+        billing_df = data["Consultant Billing"].copy()
         billing_df.columns = billing_df.columns.map(str).str.strip().str.lower()
-
-        row_label_col = billing_df.columns[0]
-        billing_df = billing_df.rename(columns={row_label_col: "consultant"})
-
+        billing_df = billing_df.rename(columns={billing_df.columns[0]: "business head", billing_df.columns[1]: "consultant"})
         billing_df = billing_df[billing_df["consultant"].notna()]
-        billing_df = billing_df[~billing_df["consultant"].astype(str).str.lower().str.contains("total")]
-        billing_df["consultant"] = billing_df["consultant"].astype(str).str.strip()
 
-        # Fill business head from top-level group
-        billing_df["business head"] = billing_df["consultant"].where(billing_df.iloc[:, 1:].isna().all(axis=1)).ffill()
-        billing_df = billing_df[~billing_df.iloc[:, 1:].isna().all(axis=1)]
-
-        # Find T Amt and N Amt columns
-        t_amt_cols = [col for col in billing_df.columns if "t amt" in col]
-        n_amt_cols = [col for col in billing_df.columns if "n amt" in col]
-        day_cols = [col for col in billing_df.columns if "days" in col]
+        t_amt_cols = [c for c in billing_df.columns if "t amt" in c]
+        n_amt_cols = [c for c in billing_df.columns if "n amt" in c]
+        days_cols = [c for c in billing_df.columns if "days" in c]
 
         billing_df["billed_amount"] = billing_df[t_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
         billing_df["net_amount"] = billing_df[n_amt_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
-        billing_df["billed_days"] = billing_df[day_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
+        billing_df["billed_days"] = billing_df[days_cols].apply(pd.to_numeric, errors="coerce").sum(axis=1)
 
         billing_summary = billing_df.groupby(["business head", "consultant"]).agg({
             "billed_amount": "sum",
@@ -81,15 +67,15 @@ if uploaded_file:
             "billed_days": "sum"
         }).reset_index()
 
-        # Monthly Trend (T Amt cols only)
-        month_order = get_month_order()
-        monthly_trend = billing_df[["consultant", "business head"] + t_amt_cols].copy()
-        monthly_trend = monthly_trend.melt(id_vars=["consultant", "business head"], var_name="Month", value_name="Billing")
-        monthly_trend.dropna(subset=["Billing"], inplace=True)
-        monthly_trend["Billing"] = pd.to_numeric(monthly_trend["Billing"], errors="coerce")
-        monthly_trend["Month"] = monthly_trend["Month"].str.extract(r"(" + "|".join(month_order) + ")")[0]
-        monthly_trend["Month"] = pd.Categorical(monthly_trend["Month"], categories=month_order, ordered=True)
-        monthly_trend = monthly_trend.dropna(subset=["Month"])
+        # Monthly Trend
+        trend_cols = t_amt_cols
+        monthly = billing_df[["consultant", "business head"] + trend_cols].copy()
+        monthly = monthly.melt(id_vars=["consultant", "business head"], var_name="month", value_name="billing")
+        monthly["month"] = monthly["month"].str.extract(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)")[0]
+        monthly["month"] = pd.Categorical(monthly["month"],
+                                          categories=["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"],
+                                          ordered=True)
+        monthly["billing"] = pd.to_numeric(monthly["billing"], errors="coerce")
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📄 Contracts Summary",
@@ -115,12 +101,12 @@ if uploaded_file:
             st.download_button("Download Consultant Summary", convert_df_to_excel(billing_summary), "consultant_summary.xlsx")
 
         with tab4:
-            st.subheader("📆 Monthly Billing Trend (FY 2024-25)")
-            chart = alt.Chart(monthly_trend).mark_line(point=True).encode(
-                x=alt.X("Month:N", sort=month_order),
-                y="Billing:Q",
+            st.subheader("📆 Monthly Billing Trend")
+            chart = alt.Chart(monthly.dropna()).mark_line(point=True).encode(
+                x="month:N",
+                y="billing:Q",
                 color="consultant:N",
-                tooltip=["consultant", "business head", "Month", "Billing"]
+                tooltip=["consultant", "business head", "month", "billing"]
             ).properties(width=900)
             st.altair_chart(chart, use_container_width=True)
 
