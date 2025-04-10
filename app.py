@@ -1,24 +1,6 @@
 import streamlit as st
 import pandas as pd
 
-# Function to process the contract sheet
-def process_contract_data(df):
-    # Selecting relevant columns
-    contracts_df = df[["Client Name", "Type of Work", "PO No.", "Business Head", "Total PO Value", "PO Balance"]]
-
-    # Calculate Utilization
-    contracts_df['Utilization'] = ((contracts_df['Total PO Value'] - contracts_df['PO Balance']) / contracts_df['Total PO Value']) * 100
-    return contracts_df
-
-# Function to process the consultant billing sheet
-def process_consultant_billing_data(df):
-    # Selecting relevant columns
-    consultant_df = df[["Business Head", "Consultant", "Client Name", "Month", "T Amt", "Ded", "N Amt", "Days"]]
-    return consultant_df
-
-# Streamlit app UI setup
-st.title("Contract & Consultant Billing Dashboard")
-
 # File uploader
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
@@ -28,7 +10,10 @@ if uploaded_file is not None:
         # Read the Excel file
         excel_file = pd.ExcelFile(uploaded_file)
         
-        # Check if both required sheets exist in the file
+        # Display sheet names for debugging
+        st.write("Sheet names in the uploaded file:", excel_file.sheet_names)
+        
+        # If both required sheets exist, process them
         if 'contracts' in excel_file.sheet_names and 'consultant billing' in excel_file.sheet_names:
             # Process the 'contracts' sheet
             contracts_df = pd.read_excel(uploaded_file, sheet_name="contracts")
