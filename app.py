@@ -69,13 +69,16 @@ if uploaded_file:
 
         # Monthly Trend
         trend_cols = t_amt_cols
-        monthly = billing_df[["consultant", "business head"] + trend_cols].copy()
+        monthly = billing_df[["consultant", "business head"]].copy()
+        for col in trend_cols:
+            if col in billing_df.columns:
+                monthly[col] = billing_df[col]
         monthly = monthly.melt(id_vars=["consultant", "business head"], var_name="month", value_name="billing")
-        monthly["month"] = monthly["month"].str.extract(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)")[0]
+        monthly["month"] = monthly["month"].str.extract(r"(apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)", expand=False)
         monthly["month"] = pd.Categorical(monthly["month"],
                                           categories=["apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "jan", "feb", "mar"],
                                           ordered=True)
-        monthly["billing"] = pd.to_numeric(monthly["billing"], errors="coerce")
+        monthly["billing"] = pd.to_numeric(monthly["billing"], errors="coerce").fillna(0)
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📄 Contracts Summary",
