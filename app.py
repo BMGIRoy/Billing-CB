@@ -1,87 +1,96 @@
 import streamlit as st
 import pandas as pd
-import altair as alt
+import matplotlib.pyplot as plt
 
-# Function to process the contract data
-def process_contract_data(df):
-    # Selecting relevant columns
-    contracts_df = df[["Client Name", "Type of Work", "PO No.", "Business Head", "Total PO Value", "PO Balance"]]
-    
-    # Calculate Utilization
-    contracts_df['Utilization'] = ((contracts_df['Total PO Value'] - contracts_df['PO Balance']) / contracts_df['Total PO Value']) * 100
-    
-    # Convert numbers to Indian currency format
-    contracts_df['Total PO Value'] = contracts_df['Total PO Value'].apply(lambda x: f'₹ {x:,.0f}')
-    contracts_df['PO Balance'] = contracts_df['PO Balance'].apply(lambda x: f'₹ {x:,.0f}')
+# Load the Excel file
+@st.cache
+def load_data(file):
+    # Read the Excel file with the specific sheet names
+    xls = pd.ExcelFile(file)
+    contracts_df = pd.read_excel(xls, 'Contracts')
+    consultant_billing_df = pd.read_excel(xls, 'Consultant Billing')
+    return contracts_df, consultant_billing_df
+
+# Process the Contracts sheet
+def process_contracts_data(contracts_df):
+    # Select relevant columns based on your input
+    contracts_df = contracts_df[['Client', 'Work', 'PO No.', 'BH', 'Total Value (F+V)', 'Fixed Balance']]
+
+    # Remove any rows with missing data in these columns
+    contracts_df = contracts_df.dropna()
+
+    # Calculate PO Utilization based on the formula
+    contracts_df['Utilization (%)'] = ((contracts_df['Total Value (F+V)'] - contracts_df['Fixed Balance']) / contracts_df['Total Value (F+V)']) * 100
+
+    # Convert to Indian currency format
+    contracts_df['Total Value (F+V)'] = contracts_df['Total Value (F+V)'].apply(lambda x: f"₹{x:,.2f}")
+    contracts_df['Fixed Balance'] = contracts_df['Fixed Balance'].apply(lambda x: f"₹{x:,.2f}")
     
     return contracts_df
 
-# Function to process the consultant billing data
-def process_consultant_billing_data(df):
-    # Selecting relevant columns
-    consultant_df = df[["Business Head", "Consultant", "Client Name", "T Amt", "Ded", "N Amt", "Days"]]
+# Process the Consultant Billing sheet
+def process_consultant_billing_data(consultant_billing_df):
+    # Data Processing for Consultant Billing: we will pivot the data based on hierarchy and months
+    consultant_billing_df = consultant_billing_df[['Business Head', 'Consultant', 'Client', 'T Amt', 'Ded', 'N Amt', 'Days']]
+    consultant_billing_df = consultant_billing_df.dropna()
+
+    # Aggregating the data based on Business Head, Consultant and Client
+    summary_df = consultant_billing_df.groupby(['Business Head', 'Consultant', 'Client']).agg({
+        'T Amt': 'sum',
+        'Ded': 'sum',
+        'N Amt': 'sum',
+        'Days': 'sum'
+    }).reset_index()
+
+    # Convert to Indian currency format
+    summary_df['T Amt'] = summary_df['T Amt'].apply(lambda x: f"₹{x:,.2f}")
+    summary_df['Ded'] = summary_df['Ded'].apply(lambda x: f"₹{x:,.2f}")
+    summary_df['N Amt'] = summary_df['N Amt'].apply(lambda x: f"₹{x:,.2f}")
+
+    return summary_df
+
+# Display Data and Visualizations in Streamlit
+def display_data(contracts_df, consultant_billing_df):
+    st.title("Contract & Consultant Billing Dashboard (FY 2024-25)")
+
+    # Display Filters
+    client_filter = st.selectbox('Select Client', contracts_df['Client'].unique())
+    bh_filter = st.selectbox('Select Business Head', contracts_df['BH'].unique())
+
+    # Filter data based on the selections
+    filtered_contracts_df = contracts_df[(contracts_df['Client'] == client_filter) & (contracts_df['BH'] == bh_filter)]
+    filtered_consultant_billing_df = consultant_billing_df[(consultant_billing_df['Client'] == client_filter) & (consultant_billing_df['Business Head'] == bh_filter)]
+
+    # Display the data
+    st.subheader('Contract Summary')
+    st.dataframe(filtered_contracts_df)
+
+    st.subheader('Consultant Billing Summary')
+    st.dataframe(filtered_consultant_billing_df)
+
+    # Graphical Representation
+    st.subheader('PO Utilization by Business Head')
+    utilization_data = filtered_contracts_df.groupby('BH')['Utilization (%)'].mean()
+    st.bar_chart(utilization_data)
+
+    st.subheader('Monthly Trend of Net Amount for Consultant')
+    monthly_trend_data = filtered_consultant_billing_df.groupby('Consultant')['N Amt'].sum()
+    st.bar_chart(monthly_trend_data)
+
+# Streamlit app execution
+def main():
+    uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
     
-    # Convert numbers to Indian currency format
-    consultant_df['T Amt'] = consultant_df['T Amt'].apply(lambda x: f'₹ {x:,.0f}')
-    consultant_df['Ded'] = consultant_df['Ded'].apply(lambda x: f'₹ {x:,.0f}')
-    consultant_df['N Amt'] = consultant_df['N Amt'].apply(lambda x: f'₹ {x:,.0f}')
-    
-    return consultant_df
+    if uploaded_file is not None:
+        # Load Data
+        contracts_df, consultant_billing_df = load_data(uploaded_file)
 
-# Streamlit app UI setup
-st.title("Contract & Consultant Billing Dashboard")
+        # Process Data
+        contracts_df = process_contracts_data(contracts_df)
+        consultant_billing_df = process_consultant_billing_data(consultant_billing_df)
 
-# File uploader
-uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+        # Display data and visuals
+        display_data(contracts_df, consultant_billing_df)
 
-# Check if file is uploaded
-if uploaded_file is not None:
-    try:
-        # Read the Excel file
-        excel_file = pd.ExcelFile(uploaded_file)
-        
-        # Display sheet names for debugging
-        st.write("Sheet names in the uploaded file:", excel_file.sheet_names)
-        
-        # If both required sheets exist, process them
-        if 'Contracts' in excel_file.sheet_names and 'Consultant Billing' in excel_file.sheet_names:
-            # Process the 'Contracts' sheet
-            contracts_df = pd.read_excel(uploaded_file, sheet_name="Contracts")
-            contracts_df = process_contract_data(contracts_df)
-
-            # Process the 'Consultant Billing' sheet
-            consultant_df = pd.read_excel(uploaded_file, sheet_name="Consultant Billing")
-            consultant_df = process_consultant_billing_data(consultant_df)
-
-            # Display Contract Data
-            st.header("Contract Summary")
-            st.write(contracts_df)
-
-            # Display Consultant Billing Data
-            st.header("Consultant Billing Summary")
-            st.write(consultant_df)
-            
-            # Contract Utilization Visualization (Bar Chart)
-            contract_utilization_chart = alt.Chart(contracts_df).mark_bar().encode(
-                x='Client Name:N',
-                y='Utilization:Q',
-                color='Business Head:N',
-                tooltip=['Client Name', 'Utilization']
-            )
-            st.altair_chart(contract_utilization_chart, use_container_width=True)
-
-            # Consultant Billing by Client Visualization (Bar Chart)
-            consultant_billing_chart = alt.Chart(consultant_df).mark_bar().encode(
-                x='Client Name:N',
-                y='N Amt:Q',
-                color='Consultant:N',
-                tooltip=['Client Name', 'N Amt']
-            )
-            st.altair_chart(consultant_billing_chart, use_container_width=True)
-
-        else:
-            st.error("The uploaded file does not contain the required sheets ('Contracts' and 'Consultant Billing'). Please check the file.")
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
-else:
-    st.warning("Please upload a file to proceed.")
+if __name__ == "__main__":
+    main()
