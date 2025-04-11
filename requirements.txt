@@ -1,4 +1,6 @@
-streamlit
-pandas
-altair
-openpyxl
+Python 3.7+
+Streamlit
+Pandas
+Plotly
+NumPy
+Openpyxl
