@@ -1,6 +1,4 @@
-Python 3.7+
-Streamlit
-Pandas
-Plotly
-NumPy
-Openpyxl
+streamlit
+pandas
+openpyxl
+matplotlib
